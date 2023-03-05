@@ -19,6 +19,9 @@ const EXISTING_ID = "64028a3a8b3f64ccf12c0011";
 const NON_EXISTING_ID = "54028a3a8b3f64ccf12c0011";
 const INVALID_ID = "123";
 
+const INITIAL_DATE = new Date(1678471200000);
+const FILTER_DATA_NUM_DAYS = 15;
+
 const getToken = async (jwt) => {
   let response = await axios.post(jwt ? JWT_LOGIN_URL : ANON_LOGIN_URL, {
     "token": jwt
@@ -403,6 +406,164 @@ describe("EPG Routes", () => {
         expect(err.response.status).toBe(400);
       }
     });
+  });
+
+  describe("Filtered Results", () => {
+    let totalLength;
+
+    beforeAll(() => {
+      let token = await getAdminToken();
+      // Insert documents with different dates and times
+      // Using Fri Mar 10, 2023 - 13:00 GMT -5 as arbitraty base date
+      // For the following 8 days, insert 3 documents for hourly long streams
+      let firstDate = INITIAL_DATE;
+      let documents = [];
+      for (let i = 0; i < FILTER_DATA_NUM_DAYS; i++) {
+        let currentDate = new Date(firstDate.getTime());
+        currentDate.setDay(currentDate.getDay() + i);
+        for (let j = 0; j < 3; j++) {
+          let currentTime = new Date(currentDate.getTime());
+          currentTime.setHours(currentTime.getHours() + j);
+          let endTime = new Date(currentTime.getTime());
+          endTime.setTime(endTime.getTime() + 1);
+          let document = {
+            title: `Document ${i}-${j}`,
+            testData: true,
+            since: currentTime.toISOString(),
+            till: endTime.toISOString()
+          }
+          documents.push(document);
+        }
+      }
+
+      documents.map(async doc => {
+        let response = await axios.post(`${BASE_URL}/api/epg`, doc, {
+          headers: {
+            "Authorization": `Bearer ${token}`
+          }
+        });
+      });
+
+      let response = await axios.get(`${BASE_URL}/api/epg`, {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      totalLength = response.data.length;
+      expect(response.status).toBe(200);
+    });
+
+    describe("Anyone can access the filtered streams", () => {
+      test("Admins can access the filtered streams", async () => {
+        let token = await getAdminToken();
+        let response = await axios.get(`${BASE_URL}/api/epg/filter`, {
+          headers: {
+            "Authorization": `Bearer ${token}`
+          }
+        });
+        expect(response.status).toBe(200);
+      });
+      test("Users can access the filtered streams", async () => {
+        let token = await getUserToken();
+        let response = await axios.get(`${BASE_URL}/api/epg/filter`, {
+          headers: {
+            "Authorization": `Bearer ${token}`
+          }
+        });
+        expect(response.status).toBe(200);
+      });
+      test("Anonymous users can access the filtered streams", async () => {
+        let token = await getAnonymousToken();
+        let response = await axios.get(`${BASE_URL}/api/epg/filter`, {
+          headers: {
+            "Authorization": `Bearer ${token}`
+          }
+        });
+        expect(response.status).toBe(200);
+      });
+    });
+
+    test("Filter without dates return all documents", async () => {
+      let token = await getAnonymousToken();
+      let response = await axios.get(`${BASE_URL}/api/epg/filter`, {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      expect(response.status).toBe(200);
+      expect(response.data.length).toBe(totalLength);
+    });
+
+    test("Filter with no end date returns all documents from that date forward", async () => {
+      let token = await getAnonymousToken();
+      let startDate = new Date(INITIAL_DATE.getTime());
+      startDate.setDate(startDate.getDate() + 3);
+      let response = await axios.get(`${BASE_URL}/api/epg/filter?start_date=${startDate.getTime()}`, {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      expect(response.status).toBe(200);
+      expect(response.data.length).toBe(FILTER_DATA_NUM_DAYS * 3 - 12)
+    });
+
+    test("Filter with no start date returns all documents until end date", async () => {
+      let token = await getAnonymousToken();
+      let endDate = new Date(INITIAL_DATE.getTime());
+      endDate.setDate(endDate.getDate() + 3);
+      let response = await axios.get(`${BASE_URL}/api/epg/filter?end_date=${endDate.getTime()}`, {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      expect(response.status).toBe(200);
+      expect(response.data.length).toBe(totalLength - (FILTER_DATA_NUM_DAYS * 3 - 12));
+    });
+
+    test("Filter with start and end dates return expected documents", async () => {
+      let token = await getAnonymousToken();
+      let startDate = new Date(INITIAL_DATE.getTime());
+      let endDate = new Date(INITIAL_DATE.getTime());
+      endDate.setDate(endDate.getDate() + 3);
+      let response = await axios.get(`${BASE_URL}/api/epg/filter?start_date=${startDate.getTime()}&end_date=${endDate.getTime()}`, {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      expect(response.status).toBe(200);
+      expect(response.data.length).toBe(12);
+    });
+
+    test("Weekly returns a week's worth of content, starting on the Monday", async () => {
+      let token = await getAnonymousToken();
+
+      let nextWednesday = new Date();
+      nextWednesday.setDate(nextWednesday.getDate() + (7 + 3 - nextWednesday.getDay()) % 7);
+
+      let response = await axios.get(`${BASE_URL}/api/epg/weekly?start_date=${startDate.getTime()}}`, {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      expect(response.status).toBe(200);
+      let firstDate = new Date(response.data[0].since);
+      expect(firstDate.getDay()).toBe(1);
+      expect(response.data.length).toBe(7 * 3);
+    });
+
+    test("Daily returns one day's worth of content", async () => {
+      let token = await getAnonymousToken();
+      let startDate = new Date(INITIAL_DATE.getTime());
+      startDate.setDate(startDate.getDate() + 1);
+      let response = await axios.get(`${BASE_URL}/api/epg/daily?start_date=${startDate.getTime()}}`, {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      expect(response.status).toBe(200);
+      expect(response.data.length).toBe(3);
+    });
+
   });
 
 });
