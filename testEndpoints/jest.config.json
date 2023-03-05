@@ -1,0 +1,9 @@
+{
+  "bail": 1,
+  "verbose": true,
+  "moduleFileExtensions": ["mjs", "json", "js"],
+  "testMatch": [
+    "**/?(*.)tests.?js",
+    "**/?(*.)tests.js"
+  ]
+}
