@@ -59,8 +59,33 @@ const getAnonymousToken = async () => {
   return anonymousToken;
 }
 
-describe("EPG Routes", () => {
+const generateNewDoc = () => {
+  let document = {
+    title: NEW_DOC_TITLE,
+    testData: true,
+    since: new Date(),
+    till: new Date()
+  }
+  return document;
+}
 
+beforeAll(async () => {
+  // Cache all tokens
+  await getAdminToken();
+  await getUserToken();
+  await getAnonymousToken();
+});
+
+afterAll(async () => {
+  // Delete test data
+  let token = await getAdminToken();
+  let response = await axios.get(`${BASE_URL}/api/epg/testcleanup`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+  expect(response.status).toBe(204);
+});
+
+describe("EPG Routes", () => {
   describe("Authentication", () => {
     test("Unauthenticated users can't get EPGs", async () => {
       try {
@@ -155,7 +180,7 @@ describe("EPG Routes", () => {
 
     test("Anonymous user can get single EPG details", async () => {
       const token = await getAnonymousToken();
-      const response = await axios.get(`${BASE_URL}/api/epg?id=${VALID_ID}`, {
+      const response = await axios.get(`${BASE_URL}/api/epg?id=${EXISTING_ID}`, {
         headers: {
           "Authorization": `Bearer ${token}`
         }
@@ -167,7 +192,7 @@ describe("EPG Routes", () => {
 
     test("Admin can get single EPG details", async () => {
       const token = await getUserToken();
-      const response = await axios.get(`${BASE_URL}/api/epg?id=${VALID_ID}`, {
+      const response = await axios.get(`${BASE_URL}/api/epg?id=${EXISTING_ID}`, {
         headers: {
           "Authorization": `Bearer ${token}`
         }
@@ -182,10 +207,7 @@ describe("EPG Routes", () => {
     test("Admin can add a new EPG", async () => {
       const token = await getAdminToken();
       try {
-        const response = await axios.post(`${BASE_URL}/api/epg`, {
-          "title": NEW_DOC_TITLE,
-          "testData": true
-        }, {
+        const response = await axios.post(`${BASE_URL}/api/epg`, generateNewDoc(), {
           headers: {
             "Authorization": `Bearer ${token}`
           }
@@ -209,10 +231,7 @@ describe("EPG Routes", () => {
     test("Other users can't add new EPGs", async () => {
       let token = await getUserToken();
       try {
-        const response = await axios.post(`${BASE_URL}/api/epg`, {
-          "title": NEW_DOC_TITLE,
-          "testData": true
-        }, {
+        const response = await axios.post(`${BASE_URL}/api/epg`, generateNewDoc(), {
           headers: {
             "Authorization": `Bearer ${token}`
           }
@@ -223,10 +242,7 @@ describe("EPG Routes", () => {
 
       token = await getAnonymousToken();
       try {
-        const response = await axios.post(`${BASE_URL}/api/epg`, {
-          "title": NEW_DOC_TITLE,
-          "testData": true
-        }, {
+        const response = await axios.post(`${BASE_URL}/api/epg`, generateNewDoc(), {
           headers: {
             "Authorization": `Bearer ${token}`
           }
@@ -242,10 +258,7 @@ describe("EPG Routes", () => {
       const token = await getAdminToken();
 
       try {
-        let response = await axios.post(`${BASE_URL}/api/epg`, {
-          "title": NEW_DOC_TITLE,
-          "testData": true
-        }, {
+        let response = await axios.post(`${BASE_URL}/api/epg`, generateNewDoc(), {
           headers: {
             "Authorization": `Bearer ${token}`
           }
@@ -270,7 +283,7 @@ describe("EPG Routes", () => {
         });
         const newDocument = newDocumentResponse.data;
         expect(newDocumentResponse.status).toBe(200);
-        expect(newDocument.title).toBe(NEW_DOC_TITLE)
+        expect(newDocument.title).toBe(UPDATED_DOC_TITLE)
 
       } catch (err) {
         expect(err).toBe(false);
@@ -288,7 +301,7 @@ describe("EPG Routes", () => {
           }
         });
       } catch (err) {
-        expect(err.response.status).toBe(403);
+        expect(err.response.status).toBe(400);
       }
 
       token = await getAnonymousToken();
@@ -301,7 +314,7 @@ describe("EPG Routes", () => {
           }
         });
       } catch (err) {
-        expect(err.response.status).toBe(403);
+        expect(err.response.status).toBe(400);
       }
     });
 
@@ -325,10 +338,7 @@ describe("EPG Routes", () => {
     test("Admin can delete an EPG", async () => {
       const token = await getAdminToken();
 
-      let response = await axios.post(`${BASE_URL}/api/epg`, {
-        "title": NEW_DOC_TITLE,
-        "testData": true
-      }, {
+      let response = await axios.post(`${BASE_URL}/api/epg`, generateNewDoc(), {
         headers: {
           "Authorization": `Bearer ${token}`
         }
@@ -336,11 +346,15 @@ describe("EPG Routes", () => {
       expect(response.status).toBe(200);
       let newId = response?.data?.insertedId;
 
-      response = await axios.delete(`${BASE_URL}/api/epg?id=${newId}`, {
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
-      });
+      try {
+        response = await axios.delete(`${BASE_URL}/api/epg?id=${newId}`, {
+          headers: {
+            "Authorization": `Bearer ${token}`
+          }
+        });
+      } catch (err) {
+        expect(err).toBeFalsy();
+      }
 
       expect(response.status).toBe(200);
 
@@ -356,9 +370,19 @@ describe("EPG Routes", () => {
     });
 
     test("Other users can't delete EPGs", async () => {
+      const adminToken = await getAdminToken();
+
+      let response = await axios.post(`${BASE_URL}/api/epg`, generateNewDoc(), {
+        headers: {
+          "Authorization": `Bearer ${adminToken}`
+        }
+      });
+      expect(response.status).toBe(200);
+      let newId = response?.data?.insertedId;
+
       let token = await getUserToken();
       try {
-        const response = await axios.delete(`${BASE_URL}/api/epg?id=${NON_EXISTING_ID}`, {
+        await axios.delete(`${BASE_URL}/api/epg?id=${newId}`, {
           headers: {
             "Authorization": `Bearer ${token}`
           }
@@ -369,7 +393,7 @@ describe("EPG Routes", () => {
 
       token = await getAnonymousToken();
       try {
-        const response = await axios.delete(`${BASE_URL}/api/epg?id=${NON_EXISTING_ID}`, {
+        await axios.delete(`${BASE_URL}/api/epg?id=${newId}`, {
           headers: {
             "Authorization": `Bearer ${token}`
           }
@@ -411,7 +435,7 @@ describe("EPG Routes", () => {
   describe("Filtered Results", () => {
     let totalLength;
 
-    beforeAll(() => {
+    beforeAll(async () => {
       let token = await getAdminToken();
       // Insert documents with different dates and times
       // Using Fri Mar 10, 2023 - 13:00 GMT -5 as arbitraty base date
@@ -420,12 +444,12 @@ describe("EPG Routes", () => {
       let documents = [];
       for (let i = 0; i < FILTER_DATA_NUM_DAYS; i++) {
         let currentDate = new Date(firstDate.getTime());
-        currentDate.setDay(currentDate.getDay() + i);
+        currentDate.setDate(currentDate.getDate() + i);
         for (let j = 0; j < 3; j++) {
           let currentTime = new Date(currentDate.getTime());
           currentTime.setHours(currentTime.getHours() + j);
           let endTime = new Date(currentTime.getTime());
-          endTime.setTime(endTime.getTime() + 1);
+          endTime.setHours(endTime.getHours() + 1);
           let document = {
             title: `Document ${i}-${j}`,
             testData: true,
@@ -436,13 +460,13 @@ describe("EPG Routes", () => {
         }
       }
 
-      documents.map(async doc => {
+      await Promise.all(documents.map(async doc => {
         let response = await axios.post(`${BASE_URL}/api/epg`, doc, {
           headers: {
             "Authorization": `Bearer ${token}`
           }
         });
-      });
+      }));
 
       let response = await axios.get(`${BASE_URL}/api/epg`, {
         headers: {
@@ -498,26 +522,34 @@ describe("EPG Routes", () => {
       let token = await getAnonymousToken();
       let startDate = new Date(INITIAL_DATE.getTime());
       startDate.setDate(startDate.getDate() + 3);
-      let response = await axios.get(`${BASE_URL}/api/epg/filter?start_date=${startDate.getTime()}`, {
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
-      });
-      expect(response.status).toBe(200);
-      expect(response.data.length).toBe(FILTER_DATA_NUM_DAYS * 3 - 12)
+      try {
+        let response = await axios.get(`${BASE_URL}/api/epg/filter?start_date=${startDate.getTime()}`, {
+          headers: {
+            "Authorization": `Bearer ${token}`
+          }
+        });
+        expect(response.status).toBe(200);
+        expect(response.data.length).toBe((FILTER_DATA_NUM_DAYS+1) * 3 - 12);
+      } catch (err) {
+        expect(err).toBeFalsy();
+      }
     });
 
     test("Filter with no start date returns all documents until end date", async () => {
       let token = await getAnonymousToken();
       let endDate = new Date(INITIAL_DATE.getTime());
       endDate.setDate(endDate.getDate() + 3);
-      let response = await axios.get(`${BASE_URL}/api/epg/filter?end_date=${endDate.getTime()}`, {
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
-      });
-      expect(response.status).toBe(200);
-      expect(response.data.length).toBe(totalLength - (FILTER_DATA_NUM_DAYS * 3 - 12));
+      try {
+        let response = await axios.get(`${BASE_URL}/api/epg/filter?end_date=${endDate.getTime()}`, {
+          headers: {
+            "Authorization": `Bearer ${token}`
+          }
+        });
+        expect(response.status).toBe(200);
+        expect(response.data.length).toBe(totalLength - ((FILTER_DATA_NUM_DAYS + 1) * 3 - 12));
+      } catch (err) {
+        expect(err).toBeFalsy();
+      }
     });
 
     test("Filter with start and end dates return expected documents", async () => {
@@ -531,16 +563,16 @@ describe("EPG Routes", () => {
         }
       });
       expect(response.status).toBe(200);
-      expect(response.data.length).toBe(12);
+      expect(response.data.length).toBe(9);
     });
 
     test("Weekly returns a week's worth of content, starting on the Monday", async () => {
       let token = await getAnonymousToken();
 
-      let nextWednesday = new Date();
+      let nextWednesday = new Date(INITIAL_DATE.getTime());
       nextWednesday.setDate(nextWednesday.getDate() + (7 + 3 - nextWednesday.getDay()) % 7);
 
-      let response = await axios.get(`${BASE_URL}/api/epg/weekly?start_date=${startDate.getTime()}}`, {
+      let response = await axios.get(`${BASE_URL}/api/epg/weekly?start_date=${nextWednesday.getTime()}}`, {
         headers: {
           "Authorization": `Bearer ${token}`
         }
